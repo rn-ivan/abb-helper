@@ -8,4 +8,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Reference Include="ABB.Robotics.Controllers.PC">
+      <HintPath>C:\Program Files (x86)\ABB\SDK\PCSDK 2024\ABB.Robotics.Controllers.PC.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
 </Project>
