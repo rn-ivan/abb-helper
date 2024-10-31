@@ -110,6 +110,7 @@
             Controls.Add(HSplit);
             Name = "MainForm";
             Text = "ABB Helper";
+            FormClosing += MainForm_FormClosing;
             Load += MainForm_Load;
             HSplit.Panel1.ResumeLayout(false);
             HSplit.Panel2.ResumeLayout(false);
