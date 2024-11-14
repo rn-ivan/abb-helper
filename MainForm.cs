@@ -2,23 +2,44 @@ using ABB.Robotics.Controllers.Discovery;
 using ABB.Robotics.Controllers;
 using System.Reflection;
 using System.Threading.Channels;
+using System.Collections;
 
 namespace AbbHelper
 {
+    public class Controller : IReadOnlyCollection<ABB.Robotics.Controllers.Controller>, IDisposable
+    {
+        private List<ABB.Robotics.Controllers.Controller> controllers = [];
+        private Action? done;
+
+        public Controller(ABB.Robotics.Controllers.Controller[] controllers, Action? done = null)
+        {
+            this.controllers.AddRange(controllers); 
+            this.done = done;
+        }
+
+        public int Count => controllers.Count;
+        public IEnumerator<ABB.Robotics.Controllers.Controller> GetEnumerator() => (IEnumerator<ABB.Robotics.Controllers.Controller>)controllers.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public void Dispose()
+        {
+            done?.Invoke();
+        }
+    }
+
     public partial class MainForm : Form
     {
         public struct ControllerEvent
         {
             public string action;
-            public string? name;
             public ControllerInfo? info;
         }
 
-        public event EventHandler? SelectedControllerChanged;
-        public event EventHandler? CheckedControllersChanged;
+        public event EventHandler<string>? SelectedControllerChanged;
+        public event EventHandler<string[]>? CheckedControllersChanged;
 
         private NetworkWatcher? networkwatcher = null;
-        private Dictionary<string, Controller> controllers = [];
+        private Dictionary<string, ABB.Robotics.Controllers.Controller> controllers = [];
         private Dictionary<string, Control> helpers = [];
         private SemaphoreSlim semaphore = new(1);
         private Channel<ControllerEvent> channel = Channel.CreateUnbounded<ControllerEvent>();
@@ -29,25 +50,25 @@ namespace AbbHelper
             InitializeComponent();
         }
 
-        public Controller? SelectedController
+        public string SelectedController => ControllerList.Text;
+        public string[] CheckedControllers => ControllerList.CheckedItems.Cast<string>().ToArray();
+
+        public Controller GetControllers(params string[] names)
         {
-            get
-            {
-                semaphore.Wait();
-                var value = ControllerList.Text == "" ? null : controllers[ControllerList.Text];
-                semaphore.Release();
-                return value;
-            }
-        }
-        public Controller[] CheckedControllers
-        {
-            get
-            {
-                semaphore.Wait();
-                var value = ControllerList.CheckedItems.Cast<object>().Select(item => controllers[item.ToString()!]).ToArray();
-                semaphore.Release();
-                return value;
-            }
+            ControllerList.Enabled = false;
+            HelperList.Enabled = false;
+            semaphore.Wait();
+            return new Controller(
+                controllers.Where(x => names.Contains(x.Key)).Select(x => x.Value).ToArray(),
+                () => { 
+                    Invoke(() =>
+                    {
+                        ControllerList.Enabled = true;
+                        HelperList.Enabled = true;
+                        semaphore.Release();
+                    });
+                }
+            );
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -66,8 +87,9 @@ namespace AbbHelper
                 var found = scanner.Controllers;
                 Invoke(() =>
                 {
+                    var writer = channel.Writer;
                     foreach (ControllerInfo info in found)
-                        channel.Writer.TryWrite(new ControllerEvent { action = "add", info = info });
+                        writer.TryWrite(new ControllerEvent { action = "add", info = info });
                     networkwatcher = new(found);
                     networkwatcher.Found += new EventHandler<NetworkWatcherEventArgs>(OnFound);
                     networkwatcher.Lost += new EventHandler<NetworkWatcherEventArgs>(OnLost);
@@ -107,11 +129,11 @@ namespace AbbHelper
         private void addController(ControllerInfo? info)
         {
             if (info == null) return;
-            Controller? controller = null;
+            ABB.Robotics.Controllers.Controller? controller = null;
             var dispose = false;
             try
             {
-                controller = Controller.Connect(info, ConnectionType.Standalone);
+                controller = ABB.Robotics.Controllers.Controller.Connect(info, ConnectionType.Standalone);
                 controller.Logon(UserInfo.DefaultUser);
             }
             catch
@@ -121,7 +143,7 @@ namespace AbbHelper
             if (controller == null) return;
             if (!dispose)
             {
-                var name = $"{controller.Name} ({controller.IPAddress})";
+                var name = $"{controller.Name} {controller.SystemName} {controller.IPAddress} RW{controller.RobotWareVersion} ";
                 semaphore.Wait();
                 if (controllers.ContainsKey(name))
                     dispose = true;
@@ -141,7 +163,7 @@ namespace AbbHelper
             if (info == null) return;
             var name = $"{info.Name} ({info.IPAddress})";
             semaphore.Wait();
-            if (controllers.TryGetValue(name, out Controller? controller))
+            if (controllers.TryGetValue(name, out ABB.Robotics.Controllers.Controller? controller))
             {
                 controllers.Remove(name);
                 Invoke(() => ControllerList.Items.Remove(name));
@@ -182,12 +204,14 @@ namespace AbbHelper
 
         private void ControllerList_SelectedIndexChanged(object sender, EventArgs e)
         {
-            SelectedControllerChanged?.Invoke(this, e);
+            SelectedControllerChanged?.Invoke(this, ControllerList.Text);
         }
 
         private void ControllerList_ItemCheck(object sender, ItemCheckEventArgs e)
         {
-            CheckedControllersChanged?.Invoke(this, e);
+            var name = ControllerList.Items[e.Index].ToString();
+            var chk = ControllerList.CheckedItems;
+            CheckedControllersChanged?.Invoke(this, ControllerList.Items.Cast<string>().Where(x => x == name ? e.NewValue==CheckState.Checked : chk.Contains(x)).ToArray());
         }
 
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)

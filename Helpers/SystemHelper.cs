@@ -1,12 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using ABB.Robotics.Controllers;
+using System.Xml.Linq;
 
 namespace AbbHelper.Helpers
 {
@@ -15,6 +8,19 @@ namespace AbbHelper.Helpers
         public SystemHelper()
         {
             InitializeComponent();
+        }
+
+        private void SystemHelper_Load(object sender, EventArgs e)
+        {
+            if (ParentForm is not MainForm form) return;
+            form.CheckedControllersChanged += OnCheckedControllersChanged;
+        }
+
+        private void OnCheckedControllersChanged(object? sender, string[] names)
+        {
+            if (ParentForm is not MainForm) return;
+            backup.Enabled = names.Length > 0;
+            restore.Enabled = names.Length == 1;
         }
     }
 }
